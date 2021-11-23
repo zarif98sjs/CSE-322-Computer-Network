@@ -2,6 +2,7 @@ package client;
 
 import java.io.*;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.Scanner;
 import java.util.StringTokenizer;
 import java.util.Vector;
@@ -12,58 +13,69 @@ public class Client {
     private DataInputStream dis = null;
     private DataOutputStream dos = null;
 
-    public void sendFile(String fileName, String fileType, int CHUNK_SIZE,DataOutputStream dos) throws IOException {
+    private Socket clientSocketFile = null;
+    private DataInputStream disFile = null;
+    private DataOutputStream dosFile = null;
+
+    public void sendFile(String fileName, String fileType, int CHUNK_SIZE,DataInputStream dataInputStream,DataOutputStream dataOutputStream,DataInputStream dataInputStreamFile,DataOutputStream dataOutputStreamFile) throws IOException {
 
         File file = new File("src/client/"+fileName);
-        FileInputStream fis = new FileInputStream(file);
+        FileInputStream fileInputStream = new FileInputStream(file);
 
-        BufferedInputStream bis = new BufferedInputStream(fis);
-        byte[] contents;
         long fileLength = file.length();
 
-        dos.writeUTF("file "+ fileLength +" "+fileName+" "+fileType);
-        dos.flush();
+        dataOutputStreamFile.writeUTF("file "+ fileLength +" "+fileName+" "+fileType+" "+CHUNK_SIZE);
+        dataOutputStreamFile.flush();
 
-        long current = 0;
+        // break file into chunks
+        int bytes = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int CHUNK = 0;
+        while ((bytes=fileInputStream.read(buffer))!=-1){
 
-        while(current!=fileLength){
-            System.out.println("Current "+current);
-            int size = CHUNK_SIZE;
-            if(fileLength - current >= size)
-                current += size;
-            else{
-                size = (int)(fileLength - current);
-                current = fileLength;
+//            System.out.println("Chunk #"+CHUNK); CHUNK++;
+
+            dataOutputStreamFile.write(buffer,0,bytes);
+            dataOutputStreamFile.flush();
+
+            try {
+                // ACK
+                String msg = dataInputStreamFile.readUTF();
+                if(!msg.equals("ACK"))
+                {
+                    System.out.println("Did not receive ACK...");
+                    break;
+                }
+
+            }catch (SocketTimeoutException socketTimeoutException){
+                System.out.println("TIMEOUT");
+                dataOutputStream.writeUTF("TIMEOUT "+fileType+" "+fileName);
+                dataOutputStream.flush();
+                break;
             }
-            contents = new byte[size];
-            bis.read(contents, 0, size);
-//                                    System.out.println(contents);
-            dos.write(contents);
-            dos.flush();
         }
-        dos.flush();
+        fileInputStream.close();
+
+        // send confirmation
+        dataOutputStreamFile.writeUTF("ACK");
+        dataOutputStreamFile.flush();
     }
 
-    public void recieveFile(String fileName, String fileType,int filesize,DataInputStream dis) throws IOException {
-        byte[] contents = new byte[10000];
+    public void recieveFile(String fileName, String fileType,int filesize,DataInputStream dataInputStream,int CHUNK_SIZE) throws IOException {
 
-        if(filesize!=0)
-        {
-            FileOutputStream fos = new FileOutputStream("src/client/"+fileType+"_"+fileName);
-            BufferedOutputStream bos = new BufferedOutputStream(fos);
+        int bytes = 0;
+        FileOutputStream fileOutputStream = new FileOutputStream("src/client/"+fileType+"_"+fileName);
 
-            int bytesRead = 0;
-            int total=0;
+        int size = filesize;     // read file size
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int CHUNK = 0;
+        while (size > 0 && (bytes = dataInputStream.read(buffer, 0, Math.min(buffer.length, size))) != -1) {
+            System.out.println("Chunk #"+CHUNK); CHUNK++;
+            fileOutputStream.write(buffer,0,bytes);
+            size -= bytes;      // read upto file size
 
-            while(total!=filesize)
-            {
-                bytesRead=dis.read(contents);
-                total+=bytesRead;
-                System.out.println("Current read (total) : "+total);
-                bos.write(contents, 0, bytesRead);
-            }
-            bos.flush();
         }
+        fileOutputStream.close();
     }
 
 
@@ -73,6 +85,13 @@ public class Client {
             clientSocket = new Socket("localhost", 6788);
             dis = new DataInputStream(clientSocket.getInputStream());
             dos = new DataOutputStream(clientSocket.getOutputStream());
+
+            clientSocketFile = new Socket("localhost", 6789);
+            clientSocketFile.setSoTimeout(5000); // 5 second
+            disFile = new DataInputStream(clientSocketFile.getInputStream());
+            dosFile = new DataOutputStream(clientSocketFile.getOutputStream());
+
+
         }catch(Exception e){
             System.out.println("Problem in connecting server, Exiting Main");
             System.exit(1);
@@ -106,7 +125,7 @@ public class Client {
                                 String fileName = tokens.elementAt(3);
                                 String fileType = tokens.elementAt(4);
 
-                                sendFile(fileName,fileType,CHUNK_SIZE,dos);
+                                sendFile(fileName,fileType,CHUNK_SIZE,dis,dos,disFile,dosFile);
 
                             }
                             else if(tokens.elementAt(0).equals("file"))
@@ -114,8 +133,9 @@ public class Client {
                                 int filesize = Integer.parseInt(tokens.elementAt(1));
                                 String fileName = tokens.elementAt(2);
                                 String fileType = tokens.elementAt(3);
+                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
 
-                                recieveFile(fileName,fileType,filesize,dis);
+                                recieveFile(fileName,fileType,filesize,dis,CHUNK_SIZE);
                                 System.out.println("File downloaded");
                             }
 //                            else
@@ -154,9 +174,25 @@ public class Client {
                     Scanner sc = new Scanner(System.in);
                     String reply = sc.nextLine();
 
+                    StringTokenizer stringTokenizer = new StringTokenizer(reply," ");
+                    Vector<String>tokens = new Vector<>();
+
+                    while (stringTokenizer.hasMoreTokens())
+                    {
+                        tokens.add(stringTokenizer.nextToken());
+                    }
+
                     try {
-                        dos.writeUTF(reply);
-                        dos.flush();
+
+                        if(tokens.elementAt(0).equals("f"))
+                        {
+                            dosFile.writeUTF(reply);
+                            dosFile.flush();
+                        }
+                        else{
+                            dos.writeUTF(reply);
+                            dos.flush();
+                        }
 
                         if(reply.equals("exit"))
                         {

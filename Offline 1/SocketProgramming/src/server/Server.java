@@ -3,13 +3,14 @@ package server;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.Random;
 import java.util.StringTokenizer;
 import java.util.Vector;
 
 public class Server {
 
-    long MAX_BUFFER_SIZE = 1000000000;
+    long MAX_BUFFER_SIZE = 30;
     int MIN_CHUNK_SIZE = 10;
     int MAX_CHUNK_SIZE = 50;
 
@@ -58,9 +59,10 @@ public class Server {
 
     public int getRandom(int a,int b) // get a random int in [a,b]
     {
-        int diff = b-a+1;
-        Random rd = new Random();
-        return a + (Math.abs(rd.nextInt()) % diff);
+        return 25;
+//        int diff = b-a+1;
+//        Random rd = new Random();
+//        return a + (Math.abs(rd.nextInt()) % diff);
     }
 
     public String getFileId(User u)
@@ -68,59 +70,85 @@ public class Server {
         return Integer.toString(u.getId()) + "_"+Integer.toString(u.getFileCounter());
     }
 
-    public void recieveFile(String fileName, String fileType,int filesize,int userID,DataInputStream dis) throws IOException {
-        byte[] contents = new byte[10000];
+    public boolean recieveFile(String fileName, String fileType,int filesize,int userID,DataInputStream dataInputStreamFile,DataOutputStream dataOutputStreamFile,int CHUNK_SIZE) throws IOException {
 
-        if(filesize!=0)
-        {
-            FileOutputStream fos = new FileOutputStream("files/"+userID+"/"+fileType+"/"+fileName);
-            BufferedOutputStream bos = new BufferedOutputStream(fos);
+        int bytes = 0;
+        FileOutputStream fileOutputStream = new FileOutputStream("files/"+userID+"/"+fileType+"/"+fileName);
 
-            int bytesRead = 0;
-            int total=0;
+        int size = filesize;     // read file size
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int CHUNK = 0;
+        // extra
+        CUR_BUFFER_SIZE += CHUNK_SIZE;
+        while (size > 0) {
 
-            while(total!=filesize)
-            {
-                bytesRead=dis.read(contents);
-                total+=bytesRead;
-                System.out.println("Current read (total) : "+total);
-                bos.write(contents, 0, bytesRead);
+            boolean ok;
+            try {
+                ok = (bytes = dataInputStreamFile.read(buffer, 0, Math.min(buffer.length, size))) != -1;
+            }catch (SocketTimeoutException socketTimeoutException){
+                break;
             }
-            bos.flush();
+
+            if(!ok) break;
+
+            System.out.println("Chunk #"+CHUNK); CHUNK++;
+
+//            if(CHUNK != 1) // hardcode to check file size difference
+                fileOutputStream.write(buffer,0,bytes);
+
+            size -= bytes;      // read upto file size
+            // send ACK
+//            if(CHUNK <= 0) { // hardcode timeout
+                dataOutputStreamFile.writeUTF("ACK");
+                dataOutputStreamFile.flush();
+//            }
+
         }
+        CUR_BUFFER_SIZE -= CHUNK_SIZE;
+        fileOutputStream.close();
+        System.out.println("FileOutputStream Closed");
+
+        // check confirmation
+        String msg = dataInputStreamFile.readUTF();
+        if(msg.equals("ACK")){
+            File file = new File("files/"+userID+"/"+fileType+"/"+fileName);
+            if(file.length() != filesize)
+            {
+                System.out.println("File size mismatch");
+                file.delete();
+                return false;
+            }
+        }
+        else
+        {
+            File file = new File("files/"+userID+"/"+fileType+"/"+fileName);
+            file.delete();
+            return false;
+        }
+
+        return true;
     }
 
-    public void sendFile(String fileName, String fileType,int uID,int CHUNK_SIZE,DataOutputStream dos) throws IOException {
+    public void sendFile(String fileName, String fileType,int uID,int CHUNK_SIZE,DataOutputStream dataOutputStream) throws IOException {
 
         File file = new File("files/"+uID+"/"+fileType+"/"+fileName);
+        FileInputStream fileInputStream = new FileInputStream(file);
 
-        FileInputStream fis = new FileInputStream(file);
-
-        BufferedInputStream bis = new BufferedInputStream(fis);
-        byte[] contents;
         long fileLength = file.length();
 
-        dos.writeUTF("file "+Long.toString(fileLength)+" "+fileName+" "+fileType);
-        dos.flush();
+        dataOutputStream.writeUTF("file "+ fileLength +" "+fileName+" "+fileType+" "+CHUNK_SIZE);
+        dataOutputStream.flush();
 
-        long current = 0;
-
-        while(current!=fileLength){
-            System.out.println("Current "+current);
-            int size = CHUNK_SIZE;
-            if(fileLength - current >= size)
-                current += size;
-            else{
-                size = (int)(fileLength - current);
-                current = fileLength;
-            }
-            contents = new byte[size];
-            bis.read(contents, 0, size);
-//                                    System.out.println(contents);
-            dos.write(contents);
-            dos.flush();
+        // break file into chunks
+        int bytes = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int CHUNK = 0;
+        while ((bytes=fileInputStream.read(buffer))!=-1){
+            System.out.println("Chunk #"+CHUNK); CHUNK++;
+            dataOutputStream.write(buffer,0,bytes);
+            dataOutputStream.flush();
         }
-        dos.flush();
+        fileInputStream.close();
     }
 
 //    public void updateUsers()
@@ -138,21 +166,29 @@ public class Server {
     Server () throws IOException {
 
         ServerSocket welcomeSocket = new ServerSocket(6788);
+//        welcomeSocket.setReceiveBufferSize((int) MAX_BUFFER_SIZE);
+        ServerSocket welcomeSocketFile = new ServerSocket(6789);
 
         while(true) {
 
             Socket connectionSocket = welcomeSocket.accept();
-
             DataInputStream dis = new DataInputStream(connectionSocket.getInputStream());
             DataOutputStream dos = new DataOutputStream(connectionSocket.getOutputStream());
 
+            Socket connectionSocketFile = welcomeSocketFile.accept();
+//            connectionSocketFile.setSoTimeout(5000);
+            DataInputStream disFile = new DataInputStream(connectionSocketFile.getInputStream());
+            DataOutputStream dosFile = new DataOutputStream(connectionSocketFile.getOutputStream());
+
             User curUser = new User(connectionSocket.getPort(),dis,dos);
-            System.out.println("Just connected to client with port -> " + connectionSocket.getPort());
+            System.out.println("Just connected to client with port -> " + connectionSocket.getPort() + ", file : "+connectionSocketFile.getPort());
 
             Thread workerThread = new Thread(new Runnable() {
 
                 @Override
                 public void run() {
+
+                    System.out.println("Server started");
 
                     try {
                         // ask login info
@@ -224,7 +260,7 @@ public class Server {
                                 String fileType = tokens.elementAt(1);
                                 String fileName = tokens.elementAt(2);
 
-                                sendFile(fileName,fileType,curUser.getId(),50, curUser.getDos());
+                                sendFile(fileName,fileType,curUser.getId(),MAX_CHUNK_SIZE, curUser.getDos());
 
                             }
                             else if(tokens.elementAt(0).equals("c"))
@@ -250,44 +286,6 @@ public class Server {
 
                                 sendFile(fileName,fileType,uID,50, curUser.getDos());
 
-                            }
-                            else if(tokens.elementAt(0).equals("f"))
-                            {
-                                // from user : f file_name file_type
-                                // Upload file
-
-                                String fileName = tokens.elementAt(1);
-                                String fileType = tokens.elementAt(2);
-                                File file = new File("src/com/company/"+fileName);
-                                long fileSize = file.length();
-                                System.out.println("Size of the file : "+fileSize);
-
-                                if(CUR_BUFFER_SIZE + fileSize <= MAX_BUFFER_SIZE)
-                                {
-                                    curUser.write("f " + getRandom(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE) + " "+ getFileId(curUser) + " " + fileName + " " + fileType);
-                                }
-                                else
-                                {
-
-                                }
-                            }
-                            else if(tokens.elementAt(0).equals("file"))
-                            {
-                                try
-                                {
-                                    int filesize = Integer.parseInt(tokens.elementAt(1));
-                                    String fileName = tokens.elementAt(2);
-                                    String fileType = tokens.elementAt(3);
-
-                                    recieveFile(fileName,fileType,filesize,curUser.getId(),dis);
-
-                                    curUser.write("File Uploaded");
-
-                                }
-                                catch(Exception e)
-                                {
-                                    System.err.println("Could not transfer file.");
-                                }
                             }
                             else if(tokens.elementAt(0).equals("send"))
                             {
@@ -317,6 +315,15 @@ public class Server {
                                 curUser.write(reply);
 
                             }
+                            else if(tokens.elementAt(0).equals("TIMEOUT"))
+                            {
+                                String fileType = tokens.elementAt(1);
+                                String fileName = tokens.elementAt(2);
+
+                                File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
+                                System.out.println(file.delete());
+                                curUser.write("File Deleted");
+                            }
                             else if(tokens.elementAt(0).equals("exit"))
                             {
                                 curUser.makeOffline();
@@ -333,6 +340,83 @@ public class Server {
             });
 
             workerThread.start();
+
+            Thread workerThreadFile = new Thread(new Runnable() {
+
+                @Override
+                public void run() {
+
+                    while (true)
+                    {
+                        try {
+                            String textFromClient = disFile.readUTF();
+                            System.out.println("Text from client (File) {"+ curUser.getClientSocketID() + " , " + curUser.getId() +  "} : "+textFromClient);
+
+                            StringTokenizer stringTokenizer = new StringTokenizer(textFromClient," ");
+                            Vector<String>tokens = new Vector<>();
+
+                            while (stringTokenizer.hasMoreTokens())
+                            {
+                                tokens.add(stringTokenizer.nextToken());
+                            }
+
+                            if(tokens.elementAt(0).equals("f"))
+                            {
+                                // from user : f file_name file_type
+                                // Upload file
+
+                                String fileName = tokens.elementAt(1);
+                                String fileType = tokens.elementAt(2);
+                                File file = new File("src/com/company/"+fileName);
+                                long fileSize = file.length();
+                                int CHUNK_SIZE = getRandom(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE);
+                                System.out.println("Size of the file : "+fileSize);
+//                                System.out.println("Buffer Size : "+welcomeSocket.getReceiveBufferSize());
+                                if(CUR_BUFFER_SIZE + CHUNK_SIZE <= MAX_BUFFER_SIZE)
+                                {
+                                    curUser.write("f " + CHUNK_SIZE + " "+ getFileId(curUser) + " " + fileName + " " + fileType);
+                                }
+                                else
+                                {
+                                    System.out.println("Buffer size limit exceeded");
+                                    curUser.write("Buffer size limit exceeded");
+                                }
+                            }
+                            else if(tokens.elementAt(0).equals("file"))
+                            {
+                                try
+                                {
+                                    int filesize = Integer.parseInt(tokens.elementAt(1));
+                                    String fileName = tokens.elementAt(2);
+                                    String fileType = tokens.elementAt(3);
+                                    int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
+
+                                    if(recieveFile(fileName,fileType,filesize,curUser.getId(),disFile,dosFile,CHUNK_SIZE))
+                                    {
+                                        curUser.write("File Uploaded");
+                                    }
+                                    else
+                                    {
+                                        curUser.write("File Upload Failed");
+                                    }
+                                }
+                                catch(Exception e)
+                                {
+                                    System.err.println("Could not transfer file.");
+                                }
+                            }
+
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+                }
+            });
+
+            workerThreadFile.start();
+
+
         }
     }
 

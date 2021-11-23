@@ -1,0 +1,5 @@
+
+- buffer overflow
+- ACK timeout
+- send sth else as confirmation rather than ACK, and check if it deletes
+- file size mismatch

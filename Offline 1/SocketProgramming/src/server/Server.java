@@ -75,43 +75,52 @@ public class Server {
         int bytes = 0;
         FileOutputStream fileOutputStream = new FileOutputStream("files/"+userID+"/"+fileType+"/"+fileName);
 
-        int size = filesize;     // read file size
-        byte[] buffer = new byte[CHUNK_SIZE];
-        int CHUNK = 0;
-        // extra
-        CUR_BUFFER_SIZE += CHUNK_SIZE;
-        while (size > 0) {
+        try{
+            int size = filesize;     // read file size
+            byte[] buffer = new byte[CHUNK_SIZE];
+            int CHUNK = 0;
+            // extra
+            CUR_BUFFER_SIZE += CHUNK_SIZE;
+            while (size > 0) {
 
-            boolean ok;
-            try {
-                ok = (bytes = dataInputStreamFile.read(buffer, 0, Math.min(buffer.length, size))) != -1;
-            }catch (SocketTimeoutException socketTimeoutException){
-                CUR_BUFFER_SIZE -= CHUNK_SIZE;
-                fileOutputStream.close();
-                System.out.println("FileOutputStream Closed");
-                return false;
-            }
+                boolean ok;
+                try {
+                    ok = (bytes = dataInputStreamFile.read(buffer, 0, Math.min(buffer.length, size))) != -1;
+                }catch (SocketTimeoutException socketTimeoutException){
+                    CUR_BUFFER_SIZE -= CHUNK_SIZE;
+                    fileOutputStream.close();
+                    System.out.println("FileOutputStream Closed");
+                    return false;
+                }
 
-            if(!ok) break;
+                if(!ok) break;
 
-            if(CHUNK % 10000 == 0)System.out.println("Chunk #"+CHUNK);
-            CHUNK++;
+                if(CHUNK % 10000 == 0)System.out.println("Chunk #"+CHUNK);
+                CHUNK++;
 
 //            if(CHUNK != 1) // hardcode to check file size difference
                 fileOutputStream.write(buffer,0,bytes);
 
-            size -= bytes;      // read upto file size
-            // send ACK
-            if(CHUNK <= 1) { // hardcode timeout
-                dataOutputStreamFile.writeUTF("ACK");
+                size -= bytes;      // read upto file size
+                // send ACK
+//            if(CHUNK <= 1) { // hardcode timeout
+                dataOutputStreamFile.writeUTF("ACKK");
                 dataOutputStreamFile.flush();
+//            }
+
             }
 
-        }
+            CUR_BUFFER_SIZE -= CHUNK_SIZE;
+            fileOutputStream.close();
+            System.out.println("FileOutputStream Closed");
 
-        CUR_BUFFER_SIZE -= CHUNK_SIZE;
-        fileOutputStream.close();
-        System.out.println("FileOutputStream Closed");
+        }catch (Exception e)
+        {
+            System.out.println("Exception ... ");
+            CUR_BUFFER_SIZE -= CHUNK_SIZE;
+            fileOutputStream.close();
+            System.out.println("FileOutputStream Closed");
+        }
 
         // check confirmation and validate file size
         String msg = dataInputStreamFile.readUTF();
@@ -139,22 +148,28 @@ public class Server {
         File file = new File("files/"+uID+"/"+fileType+"/"+fileName);
         FileInputStream fileInputStream = new FileInputStream(file);
 
-        long fileLength = file.length();
+        try{
+            long fileLength = file.length();
 
-        dataOutputStream.writeUTF("file "+ fileLength +" "+fileName+" "+fileType+" "+CHUNK_SIZE);
-        dataOutputStream.flush();
-
-        // break file into chunks
-        int bytes = 0;
-        byte[] buffer = new byte[CHUNK_SIZE];
-        int CHUNK = 0;
-        while ((bytes=fileInputStream.read(buffer))!=-1){
-            if(CHUNK % 10000 == 0) System.out.println("Chunk #"+CHUNK);
-            CHUNK++;
-            dataOutputStream.write(buffer,0,bytes);
+            dataOutputStream.writeUTF("file "+ fileLength +" "+fileName+" "+fileType+" "+CHUNK_SIZE);
             dataOutputStream.flush();
+
+            // break file into chunks
+            int bytes = 0;
+            byte[] buffer = new byte[CHUNK_SIZE];
+            int CHUNK = 0;
+            while ((bytes=fileInputStream.read(buffer))!=-1){
+                if(CHUNK % 10000 == 0) System.out.println("Chunk #"+CHUNK);
+                CHUNK++;
+                dataOutputStream.write(buffer,0,bytes);
+                dataOutputStream.flush();
+            }
+            fileInputStream.close();
+
+        }catch (Exception e)
+        {
+            fileInputStream.close();
         }
-        fileInputStream.close();
     }
 
 //    public void updateUsers()
@@ -311,15 +326,6 @@ public class Server {
                                 curUser.write(reply);
 
                             }
-                            else if(tokens.elementAt(0).equals("TIMEOUT"))
-                            {
-                                String fileType = tokens.elementAt(1);
-                                String fileName = tokens.elementAt(2);
-
-                                File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
-                                System.out.println(file.delete());
-                                curUser.writeToFileStream("File Deleted");
-                            }
                             else if(tokens.elementAt(0).equals("exit"))
                             {
                                 curUser.makeOffline();
@@ -394,20 +400,26 @@ public class Server {
                             }
                             else if(tokens.elementAt(0).equals("file"))
                             {
+                                int filesize = Integer.parseInt(tokens.elementAt(1));
+                                String fileName = tokens.elementAt(2);
+                                String fileType = tokens.elementAt(3);
+                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
+
                                 try
                                 {
-                                    int filesize = Integer.parseInt(tokens.elementAt(1));
-                                    String fileName = tokens.elementAt(2);
-                                    String fileType = tokens.elementAt(3);
-                                    int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
+                                    connectionSocketFile.setSoTimeout(5000);
+                                    boolean ok = recieveFile(fileName,fileType,filesize,curUser.getId(),disFile,dosFile,CHUNK_SIZE);
+                                    connectionSocketFile.setSoTimeout(0);
 
-                                    if(recieveFile(fileName,fileType,filesize,curUser.getId(),disFile,dosFile,CHUNK_SIZE))
+                                    if(ok)
                                     {
                                         curUser.writeToFileStream("ACK");
                                         System.out.println("File Upload Completed");
                                     }
                                     else
                                     {
+                                        File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
+                                        System.out.println(file.delete());
                                         curUser.writeToFileStream("NOT_ACK");
                                         System.out.println("File Upload Failed");
                                     }
@@ -415,8 +427,20 @@ public class Server {
                                 }
                                 catch(Exception e)
                                 {
+                                    File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
+                                    System.out.println(file.delete());
+                                    curUser.writeToFileStream("File Deleted");
                                     System.err.println("Could not transfer file.");
                                 }
+                            }
+                            else if(tokens.elementAt(0).equals("TIMEOUT"))
+                            {
+                                String fileType = tokens.elementAt(1);
+                                String fileName = tokens.elementAt(2);
+
+                                File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
+                                System.out.println(file.delete());
+                                curUser.writeToFileStream("File Deleted");
                             }
 
                         } catch (Exception e) {

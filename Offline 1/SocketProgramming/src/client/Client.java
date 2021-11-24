@@ -49,8 +49,8 @@ public class Client {
 
             }catch (SocketTimeoutException socketTimeoutException){
                 System.out.println("TIMEOUT");
-                dataOutputStream.writeUTF("TIMEOUT "+fileType+" "+fileName);
-                dataOutputStream.flush();
+                dataOutputStreamFile.writeUTF("TIMEOUT "+fileType+" "+fileName);
+                dataOutputStreamFile.flush();
                 fileInputStream.close();
                 return;
             }
@@ -237,8 +237,9 @@ public class Client {
                             String fileName = tokens.elementAt(3);
                             String fileType = tokens.elementAt(4);
 
+                            clientSocketFile.setSoTimeout(5000);
                             sendFile(fileName,fileType,CHUNK_SIZE,dis,dos,disFile,dosFile);
-
+                            clientSocketFile.setSoTimeout(0);
                         }
                         else if(tokens.elementAt(0).equals("file"))
                         {

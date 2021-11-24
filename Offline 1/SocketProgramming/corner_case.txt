@@ -1,6 +1,9 @@
 
 - upload
     - buffer overflow  -> ok
-- ACK timeout
-- send sth else as confirmation rather than ACK, and check if it deletes
-- file size mismatch
+        - put in queue (BONUS) -> ???
+    - ACK timeout -> delete -> ok
+    - file size mismatch -> delete -> ok
+    - client disconnects -> delete -> ok
+    - simultaneous other functionality except file transfer (BONUS) -> ok
+    - send sth else as confirmation rather than ACK, and check if it deletes -> ok

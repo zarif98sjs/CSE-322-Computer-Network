@@ -12,15 +12,19 @@ public class User {
     int clientSocketID;
     private DataInputStream dis;
     private DataOutputStream dos;
+    private DataInputStream disFile;
+    private DataOutputStream dosFile;
     boolean isOnline;
     int fileCounter;
 
     Vector<Message> messageVector;
 
-    public User(int clientSocketID,DataInputStream dis, DataOutputStream dos) {
+    public User(int clientSocketID,DataInputStream dis, DataOutputStream dos,DataInputStream disFile, DataOutputStream dosFile) {
         this.clientSocketID = clientSocketID;
         this.dis = dis;
         this.dos = dos;
+        this.disFile = disFile;
+        this.dosFile = dosFile;
         this.isOnline = true;
         this.fileCounter = 0;
         this.messageVector = new Vector<Message>();
@@ -57,13 +61,24 @@ public class User {
         return dos;
     }
 
+    public DataOutputStream getDosFile() {
+        return dosFile;
+    }
+
     public void setDos(DataOutputStream dos) {
         this.dos = dos;
     }
 
+
+
     public void write(String text) throws IOException {
         dos.writeUTF(text);
         dos.flush();
+    }
+
+    public void writeToFileStream(String text) throws IOException {
+        dosFile.writeUTF(text);
+        dosFile.flush();
     }
 
     public void makeOffline()

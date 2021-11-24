@@ -51,7 +51,8 @@ public class Client {
                 System.out.println("TIMEOUT");
                 dataOutputStream.writeUTF("TIMEOUT "+fileType+" "+fileName);
                 dataOutputStream.flush();
-                break;
+                fileInputStream.close();
+                return;
             }
         }
         fileInputStream.close();
@@ -59,6 +60,11 @@ public class Client {
         // send confirmation
         dataOutputStreamFile.writeUTF("ACK");
         dataOutputStreamFile.flush();
+
+        String msg = dataInputStreamFile.readUTF();
+        if(msg.equals("ACK")) System.out.println("File Upload Completed");
+        else System.out.println("File Upload Failed");
+
     }
 
     public void recieveFile(String fileName, String fileType,int filesize,DataInputStream dataInputStream,int CHUNK_SIZE) throws IOException {
@@ -70,7 +76,8 @@ public class Client {
         byte[] buffer = new byte[CHUNK_SIZE];
         int CHUNK = 0;
         while (size > 0 && (bytes = dataInputStream.read(buffer, 0, Math.min(buffer.length, size))) != -1) {
-            System.out.println("Chunk #"+CHUNK); CHUNK++;
+//            System.out.println("Chunk #"+CHUNK);
+            CHUNK++;
             fileOutputStream.write(buffer,0,bytes);
             size -= bytes;      // read upto file size
 
@@ -87,7 +94,6 @@ public class Client {
             dos = new DataOutputStream(clientSocket.getOutputStream());
 
             clientSocketFile = new Socket("localhost", 6789);
-            clientSocketFile.setSoTimeout(5000); // 5 second
             disFile = new DataInputStream(clientSocketFile.getInputStream());
             dosFile = new DataOutputStream(clientSocketFile.getOutputStream());
 
@@ -101,79 +107,22 @@ public class Client {
             @Override
             public void run() {
 
+                // first
+                String textFromServer = null;
+                try {
+                    textFromServer = dis.readUTF();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                System.out.println("From Server => " + textFromServer);
+
                 while (true)
                 {
-                    try {
-                        String textFromServer = dis.readUTF();
-                        System.out.println("From Server => " + textFromServer);
-
-                        StringTokenizer stringTokenizer = new StringTokenizer(textFromServer," ");
-                        Vector<String> tokens = new Vector<>();
-
-                        while (stringTokenizer.hasMoreTokens())
-                        {
-                            tokens.add(stringTokenizer.nextToken());
-                        }
-
-                        try {
-
-                            if(tokens.elementAt(0).equals("f"))
-                            {
-
-                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(1));
-                                String fileId = tokens.elementAt(2);
-                                String fileName = tokens.elementAt(3);
-                                String fileType = tokens.elementAt(4);
-
-                                sendFile(fileName,fileType,CHUNK_SIZE,dis,dos,disFile,dosFile);
-
-                            }
-                            else if(tokens.elementAt(0).equals("file"))
-                            {
-                                int filesize = Integer.parseInt(tokens.elementAt(1));
-                                String fileName = tokens.elementAt(2);
-                                String fileType = tokens.elementAt(3);
-                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
-
-                                recieveFile(fileName,fileType,filesize,dis,CHUNK_SIZE);
-                                System.out.println("File downloaded");
-                            }
-//                            else
-//                            {
-//                                Scanner sc = new Scanner(System.in);
-//                                String reply = sc.nextLine();
-//                                dos.writeUTF(reply);
-//                                dos.flush();
-//
-//                                if(reply.equals("exit"))
-//                                {
-//                                    System.exit(1);
-//                                }
-//
-//                            }
-
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-
-            }
-        });
-
-        Thread consoleStream = new Thread(new Runnable() {
-
-            public void run() {
-                while (true) {
-
-                    System.out.println("Console Stream : ");
-
+                    // ping
+                    System.out.println("Console ...");
                     Scanner sc = new Scanner(System.in);
                     String reply = sc.nextLine();
-
+                    System.out.println("Reply : "+reply);
                     StringTokenizer stringTokenizer = new StringTokenizer(reply," ");
                     Vector<String>tokens = new Vector<>();
 
@@ -184,7 +133,7 @@ public class Client {
 
                     try {
 
-                        if(tokens.elementAt(0).equals("f"))
+                        if(tokens.elementAt(0).equals("f") || tokens.elementAt(0).equals("b_d"))
                         {
                             dosFile.writeUTF(reply);
                             dosFile.flush();
@@ -203,12 +152,115 @@ public class Client {
                         e.printStackTrace();
                     }
 
+                    try {
+                        // ping reply
+                        textFromServer = dis.readUTF();
+                        System.out.println("From Server => " + textFromServer);
+
+//                        stringTokenizer = new StringTokenizer(textFromServer," ");
+//                        tokens = new Vector<>();
+//
+//                        while (stringTokenizer.hasMoreTokens())
+//                        {
+//                            tokens.add(stringTokenizer.nextToken());
+//                        }
+
+                        //                            if(tokens.elementAt(0).equals("f"))
+//                            {
+//
+//                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(1));
+//                                String fileId = tokens.elementAt(2);
+//                                String fileName = tokens.elementAt(3);
+//                                String fileType = tokens.elementAt(4);
+//
+//                                sendFile(fileName,fileType,CHUNK_SIZE,dis,dos,disFile,dosFile);
+//
+//                            }
+//                            else if(tokens.elementAt(0).equals("file"))
+//                            {
+//                                int filesize = Integer.parseInt(tokens.elementAt(1));
+//                                String fileName = tokens.elementAt(2);
+//                                String fileType = tokens.elementAt(3);
+//                                int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
+//
+//                                recieveFile(fileName,fileType,filesize,dis,CHUNK_SIZE);
+//                                System.out.println("File downloaded");
+//                            }
+//                            else
+//                            {
+//                                Scanner sc = new Scanner(System.in);
+//                                String reply = sc.nextLine();
+//                                dos.writeUTF(reply);
+//                                dos.flush();
+//
+//                                if(reply.equals("exit"))
+//                                {
+//                                    System.exit(1);
+//                                }
+//
+//                            }
+
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+            }
+        });
+
+        Thread fileStream = new Thread(new Runnable() {
+
+            public void run() {
+                while (true) {
+
+                    System.out.println("File Stream : ");
+
+                    // ping reply
+                    String textFromServerFile = null;
+                    try {
+                        textFromServerFile = disFile.readUTF();
+                        System.out.println("From Server (File Stream) => " + textFromServerFile);
+
+                        StringTokenizer stringTokenizer = new StringTokenizer(textFromServerFile," ");
+                        Vector<String>tokens = new Vector<>();
+
+                        while (stringTokenizer.hasMoreTokens())
+                        {
+                            tokens.add(stringTokenizer.nextToken());
+                        }
+
+                        if(tokens.elementAt(0).equals("f"))
+                        {
+
+                            int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(1));
+                            String fileId = tokens.elementAt(2);
+                            String fileName = tokens.elementAt(3);
+                            String fileType = tokens.elementAt(4);
+
+                            sendFile(fileName,fileType,CHUNK_SIZE,dis,dos,disFile,dosFile);
+
+                        }
+                        else if(tokens.elementAt(0).equals("file"))
+                        {
+                            int filesize = Integer.parseInt(tokens.elementAt(1));
+                            String fileName = tokens.elementAt(2);
+                            String fileType = tokens.elementAt(3);
+                            int CHUNK_SIZE = Integer.parseInt(tokens.elementAt(4));
+
+                            recieveFile(fileName,fileType,filesize,disFile,CHUNK_SIZE);
+                            System.out.println("File downloaded");
+                        }
+
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
                 }
             }
         });
 
         listenFromServer.start();
-        consoleStream.start();
+        fileStream.start();
     }
 
     public static void main(String args[]) throws IOException {

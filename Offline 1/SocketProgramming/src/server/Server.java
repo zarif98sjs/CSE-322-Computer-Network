@@ -86,29 +86,34 @@ public class Server {
             try {
                 ok = (bytes = dataInputStreamFile.read(buffer, 0, Math.min(buffer.length, size))) != -1;
             }catch (SocketTimeoutException socketTimeoutException){
-                break;
+                CUR_BUFFER_SIZE -= CHUNK_SIZE;
+                fileOutputStream.close();
+                System.out.println("FileOutputStream Closed");
+                return false;
             }
 
             if(!ok) break;
 
-            System.out.println("Chunk #"+CHUNK); CHUNK++;
+            if(CHUNK % 10000 == 0)System.out.println("Chunk #"+CHUNK);
+            CHUNK++;
 
 //            if(CHUNK != 1) // hardcode to check file size difference
                 fileOutputStream.write(buffer,0,bytes);
 
             size -= bytes;      // read upto file size
             // send ACK
-//            if(CHUNK <= 0) { // hardcode timeout
+            if(CHUNK <= 1) { // hardcode timeout
                 dataOutputStreamFile.writeUTF("ACK");
                 dataOutputStreamFile.flush();
-//            }
+            }
 
         }
+
         CUR_BUFFER_SIZE -= CHUNK_SIZE;
         fileOutputStream.close();
         System.out.println("FileOutputStream Closed");
 
-        // check confirmation
+        // check confirmation and validate file size
         String msg = dataInputStreamFile.readUTF();
         if(msg.equals("ACK")){
             File file = new File("files/"+userID+"/"+fileType+"/"+fileName);
@@ -144,7 +149,8 @@ public class Server {
         byte[] buffer = new byte[CHUNK_SIZE];
         int CHUNK = 0;
         while ((bytes=fileInputStream.read(buffer))!=-1){
-            System.out.println("Chunk #"+CHUNK); CHUNK++;
+            if(CHUNK % 10000 == 0) System.out.println("Chunk #"+CHUNK);
+            CHUNK++;
             dataOutputStream.write(buffer,0,bytes);
             dataOutputStream.flush();
         }
@@ -180,7 +186,7 @@ public class Server {
             DataInputStream disFile = new DataInputStream(connectionSocketFile.getInputStream());
             DataOutputStream dosFile = new DataOutputStream(connectionSocketFile.getOutputStream());
 
-            User curUser = new User(connectionSocket.getPort(),dis,dos);
+            User curUser = new User(connectionSocket.getPort(),dis,dos,disFile,dosFile);
             System.out.println("Just connected to client with port -> " + connectionSocket.getPort() + ", file : "+connectionSocketFile.getPort());
 
             Thread workerThread = new Thread(new Runnable() {
@@ -253,16 +259,6 @@ public class Server {
                                 }
                                 curUser.write(ret);
                             }
-                            else if(tokens.elementAt(0).equals("b_d"))
-                            {
-                                // download own file request from user : file_type file_name
-
-                                String fileType = tokens.elementAt(1);
-                                String fileName = tokens.elementAt(2);
-
-                                sendFile(fileName,fileType,curUser.getId(),MAX_CHUNK_SIZE, curUser.getDos());
-
-                            }
                             else if(tokens.elementAt(0).equals("c"))
                             {
                                 // lookup public files of a specific student
@@ -322,7 +318,7 @@ public class Server {
 
                                 File file = new File("files/"+curUser.getId()+"/"+fileType+"/"+fileName);
                                 System.out.println(file.delete());
-                                curUser.write("File Deleted");
+                                curUser.writeToFileStream("File Deleted");
                             }
                             else if(tokens.elementAt(0).equals("exit"))
                             {
@@ -360,7 +356,18 @@ public class Server {
                                 tokens.add(stringTokenizer.nextToken());
                             }
 
-                            if(tokens.elementAt(0).equals("f"))
+                            if(tokens.elementAt(0).equals("b_d"))
+                            {
+                                // download own file request from user : file_type file_name
+
+                                String fileType = tokens.elementAt(1);
+                                String fileName = tokens.elementAt(2);
+
+                                curUser.write("ok. download started");
+                                sendFile(fileName,fileType,curUser.getId(),MAX_CHUNK_SIZE, curUser.getDosFile());
+
+                            }
+                            else if(tokens.elementAt(0).equals("f"))
                             {
                                 // from user : f file_name file_type
                                 // Upload file
@@ -374,12 +381,15 @@ public class Server {
 //                                System.out.println("Buffer Size : "+welcomeSocket.getReceiveBufferSize());
                                 if(CUR_BUFFER_SIZE + CHUNK_SIZE <= MAX_BUFFER_SIZE)
                                 {
-                                    curUser.write("f " + CHUNK_SIZE + " "+ getFileId(curUser) + " " + fileName + " " + fileType);
+                                    System.out.println("...");
+                                    curUser.write("ok");
+                                    curUser.writeToFileStream("f " + CHUNK_SIZE + " "+ getFileId(curUser) + " " + fileName + " " + fileType);
                                 }
                                 else
                                 {
                                     System.out.println("Buffer size limit exceeded");
-                                    curUser.write("Buffer size limit exceeded");
+                                    curUser.write("not ok");
+                                    curUser.writeToFileStream("Buffer size limit exceeded");
                                 }
                             }
                             else if(tokens.elementAt(0).equals("file"))
@@ -393,12 +403,15 @@ public class Server {
 
                                     if(recieveFile(fileName,fileType,filesize,curUser.getId(),disFile,dosFile,CHUNK_SIZE))
                                     {
-                                        curUser.write("File Uploaded");
+                                        curUser.writeToFileStream("ACK");
+                                        System.out.println("File Upload Completed");
                                     }
                                     else
                                     {
-                                        curUser.write("File Upload Failed");
+                                        curUser.writeToFileStream("NOT_ACK");
+                                        System.out.println("File Upload Failed");
                                     }
+
                                 }
                                 catch(Exception e)
                                 {
@@ -406,8 +419,11 @@ public class Server {
                                 }
                             }
 
-                        } catch (IOException e) {
-                            e.printStackTrace();
+                        } catch (Exception e) {
+//                            e.printStackTrace();
+                            curUser.makeOffline();
+                            Thread.currentThread().interrupt(); // preserve the message
+                            return;
                         }
                     }
 

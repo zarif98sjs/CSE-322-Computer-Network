@@ -33,7 +33,8 @@ public class Client {
         int CHUNK = 0;
         while ((bytes=fileInputStream.read(buffer))!=-1){
 
-//            System.out.println("Chunk #"+CHUNK); CHUNK++;
+            if(CHUNK % 10000 == 0) System.out.println("Chunk #"+CHUNK);
+            CHUNK++;
 
             dataOutputStreamFile.write(buffer,0,bytes);
             dataOutputStreamFile.flush();
@@ -250,6 +251,13 @@ public class Client {
 
                             recieveFile(fileName,fileType,filesize,disFile,CHUNK_SIZE);
                             System.out.println("File downloaded");
+                        }
+                        else if(tokens.elementAt(0).equals("queue"))
+                        {
+                            String fileName = tokens.elementAt(1);
+                            String fileType = tokens.elementAt(2);
+
+                            dosFile.writeUTF("f "+fileName+" "+fileType);
                         }
 
                     } catch (IOException e) {

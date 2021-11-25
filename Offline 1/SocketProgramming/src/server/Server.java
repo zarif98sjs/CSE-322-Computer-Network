@@ -16,6 +16,8 @@ public class Server {
 
     long CUR_BUFFER_SIZE = 0;
 
+    int reqId = 0;
+
     Vector<User> users = new Vector<>();
 
     public User findUser(int id)
@@ -104,7 +106,7 @@ public class Server {
                 size -= bytes;      // read upto file size
                 // send ACK
 //            if(CHUNK <= 1) { // hardcode timeout
-                dataOutputStreamFile.writeUTF("ACKK");
+                dataOutputStreamFile.writeUTF("ACK");
                 dataOutputStreamFile.flush();
 //            }
 
@@ -298,13 +300,27 @@ public class Server {
                                 sendFile(fileName,fileType,uID,50, curUser.getDos());
 
                             }
+                            else if(tokens.elementAt(0).equals("d"))
+                            {
+                                // request for a file -> description
+                                String description = tokens.elementAt(1);
+                                String message = "File Request ... Request ID : "+reqId+" , Description : "+description;
+                                reqId++;
+
+                                for(User other:users)
+                                {
+                                    sendMessage(curUser.getId(),other.getId(),message);
+                                }
+
+                                curUser.write("File request broadcasted");
+                            }
                             else if(tokens.elementAt(0).equals("send"))
                             {
                                 // send message to other user : send user_id message
                                 System.out.println("sending message .. ");
                                 int to = Integer.parseInt(tokens.elementAt(1));
                                 String message = tokens.elementAt(2);
-                                sendMessage(curUser.getId(),to,message);
+                                if(curUser.getId() != to) sendMessage(curUser.getId(),to,message);
                                 curUser.write("Message sent successfully");
                             }
                             else if(tokens.elementAt(0).equals("show"))
@@ -385,6 +401,8 @@ public class Server {
                                 int CHUNK_SIZE = getRandom(MIN_CHUNK_SIZE, MAX_CHUNK_SIZE);
                                 System.out.println("Size of the file : "+fileSize);
 //                                System.out.println("Buffer Size : "+welcomeSocket.getReceiveBufferSize());
+
+
                                 if(CUR_BUFFER_SIZE + CHUNK_SIZE <= MAX_BUFFER_SIZE)
                                 {
                                     System.out.println("...");
@@ -395,7 +413,19 @@ public class Server {
                                 {
                                     System.out.println("Buffer size limit exceeded");
                                     curUser.write("not ok");
-                                    curUser.writeToFileStream("Buffer size limit exceeded");
+                                    curUser.writeToFileStream("Server Buffer not free ... You are put in queue");
+
+                                    while (CUR_BUFFER_SIZE + CHUNK_SIZE > MAX_BUFFER_SIZE)
+                                    {
+                                        System.out.println("waiting...");
+                                    }
+
+                                    System.out.println("uploading from queue ... ");
+                                    curUser.writeToFileStream("queue "+fileName+" "+fileType);
+
+//
+//                                    curUser.write("not ok");
+//                                    curUser.writeToFileStream("Buffer size limit exceeded");
                                 }
                             }
                             else if(tokens.elementAt(0).equals("file"))

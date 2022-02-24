@@ -1,0 +1,9 @@
+1. a -> lookup students (online + offline)
+2. b -> lookup own files (public + private)
+   b_d file filetpye
+3. c studentID -> lookup public files of given "studentID"
+   c_d studentID fileName -> download a public file named "fileName" of "stidentID"
+4. d textDescriptionOfRequestedFile -> request for a file with "textDescriptionOfRequestedFile"
+5. show -> view all unread messages
+6. f fileName fileType -> upload a file with "fileName" and "fileType" (public/private)
+   f_r fileName requestID -> upload a file with "fileName" and fileType as "public" with a valid "requestID"
